@@ -71,6 +71,14 @@ tr:hover td{background:rgba(254,11,0,.04)}
 .btn-add{grid-column:1/-1;justify-self:start;background:var(--red);border:none;color:#fff;padding:12px 24px;font-family:inherit;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;border-radius:12px}
 .btn-add:hover{background:#d90a00}
 .note{font-size:12px;color:var(--grey);grid-column:1/-1}
+.hbar{display:grid;grid-template-columns:200px 1fr 56px;gap:10px;align-items:center;margin-bottom:8px;font-size:13px;font-weight:600}
+.hbar .track{background:var(--bg);border:1px solid var(--border);border-radius:8px;height:18px;overflow:hidden}
+.hbar .fill{height:100%;background:var(--red)}
+.hbar .fill.success{background:var(--green)}
+.hbar .fill.neutral{background:#B5B5B5}
+.hbar .n{text-align:right;font-weight:900}
+.sc-warn{font-size:12px;color:var(--grey);margin:-14px 0 20px}
+@media(max-width:700px){.hbar{grid-template-columns:120px 1fr 48px}}
 .prob .meta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--grey)}
 .prob .meta .tag{border:1px solid var(--border);padding:3px 8px}
 .prob .meta .tag.status{border-color:var(--red);color:var(--red)}
@@ -101,6 +109,7 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
   </div>
   <nav class="nav">
     <button class="active" data-view="perf" onclick="switchView('perf')">→ Performance</button>
+    <button data-view="skip" onclick="switchView('skip')">→ SkipCall</button>
     <button data-view="probs" onclick="switchView('probs')">→ Problèmes &amp; Solutions</button>
   </nav>
   <div class="updated" id="updated"></div>
@@ -156,6 +165,17 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
         <div class="panel"><h3>→ Par mission</h3><div class="chartbox"><canvas id="c-mission"></canvas></div></div>
       </div>
     </div>
+  </section>
+
+  <!-- VUE SKIPCALL -->
+  <section id="view-skip" style="display:none">
+    <div class="filters">
+      <div class="filter"><label>Mission</label><select id="sc-mission"></select></div>
+      <div class="filter"><label>Date de début</label><input type="date" id="sc-from"></div>
+      <div class="filter"><label>Date de fin</label><input type="date" id="sc-to"></div>
+      <div class="filter"><label>&nbsp;</label><button class="btn-add" style="padding:10px 24px" onclick="loadSkip()">→ Afficher</button></div>
+    </div>
+    <div id="sc-content"></div>
   </section>
 
   <!-- VUE PROBLEMES -->
@@ -518,9 +538,140 @@ function renderProblems(){
 
 function switchView(v){
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
-  document.getElementById('view-perf').style.display=v==='perf'?'block':'none';
-  document.getElementById('view-probs').style.display=v==='probs'?'block':'none';
+  ['perf','skip','probs'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');
   if(v==='probs'&&problems===null) loadProblems();
+  if(v==='skip'&&scSequences===null) initSkip();
+}
+
+// --- SkipCall (via proxy Apps Script, la clé API reste côté serveur) ---
+let scSequences=null;
+const scCache={};
+const SC_MISSION_PATTERNS=[['DCUBE',/DCUBE/],['GROF',/GROF/],['HARVEN',/HARVEN/],['SPECTRUM',/SPECTRUM/],
+  ['WEECHOOZ',/WEECHOOZ|WECHOOZ/],['MOGADOR',/MOGADOR/],['KAIROS',/KAIROS/],['REVIT',/REVIT/],
+  ['PMO',/\bPMO\b/],['STOKELP',/STOKELP/],['JOSH',/\bJOSH\b/],['TENDIZ',/TENDIZ/],['KALLPA',/KALLPA/],
+  ['DBM',/\bDBM\b/],['ZBO',/\bZBO\b/],['STOKELP',/\bSL\b/],['FREELANCE',/FREELANCE/]];
+const SC_STATUS_FR={CONNECTED:'Connecté',COMPLETED:'Terminé',NO_ANSWER:'Pas de réponse',VOICEMAIL:'Répondeur',
+  BUSY:'Occupé',MISSED_CALL:'Appel manqué',CANCELLED:'Annulé',NOT_INITIATED:'Non initié',INITIATED:'Initié',
+  QUEUED:'En file',RINGING:'Sonnerie',IN_PROGRESS:'En cours',ERROR_NUMBER:'Numéro invalide',
+  ERROR_COUNTRY:'Pays non autorisé',UNKNOWN_ERROR:'Erreur'};
+function scNorm(s){return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();}
+function scMission(name){
+  const n=scNorm(name);
+  for(const[m,re]of SC_MISSION_PATTERNS){if(re.test(n))return m;}
+  const w=n.replace(/^ARCHIVE.*?\/\//,'').trim().split(/[\s\-–\/:]+/).find(x=>x.length>2);
+  return w||'AUTRE';
+}
+async function SC(path,params){
+  const q=new URLSearchParams({path});
+  if(params)Object.keys(params).forEach(k=>{if(params[k]!==''&&params[k]!=null)q.append(k,params[k]);});
+  const r=await fetch(SCRIPT_URL+'?'+q.toString());
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  if(j.error)throw new Error(typeof j.error==='string'?j.error:(j.error.message||'erreur API'));
+  return j;
+}
+async function initSkip(){
+  const now=new Date();
+  document.getElementById('sc-from').value=iso(new Date(now.getFullYear(),now.getMonth(),1));
+  document.getElementById('sc-to').value=iso(now);
+  const box=document.getElementById('sc-content');
+  box.innerHTML='<div class="msg"><div class="spinner"></div>Chargement des missions SkipCall…</div>';
+  try{
+    let page=1,all=[];
+    while(true){
+      const j=await SC('/v1/sequences',{limit:100,page});
+      all=all.concat(j.data||[]);
+      if(page>=(j.totalPages||1))break;
+      page++;
+    }
+    scSequences=all.map(s=>({id:s.id,name:s.name,contacts:s.contactCount||0,mission:scMission(s.name)}));
+    const byM={};
+    scSequences.forEach(s=>{(byM[s.mission]=byM[s.mission]||[]).push(s);});
+    document.getElementById('sc-mission').innerHTML=
+      '<option value="">Toutes les missions (global)</option>'+
+      Object.keys(byM).sort().map(m=>`<option value="${m}">${m} — ${byM[m].length} séquence${byM[m].length>1?'s':''}</option>`).join('');
+    box.innerHTML='<div class="msg">Choisis une mission et une période, puis clique sur <b style="color:var(--black)">→ Afficher</b>.</div>';
+  }catch(e){
+    scSequences=null;
+    box.innerHTML='<div class="msg"><div class="big">Connexion SkipCall indisponible</div>Le script Apps Script doit être mis à jour avec le proxy SkipCall ('+esc(e.message)+').</div>';
+  }
+}
+const fmtSec=s=>s>=3600?Math.floor(s/3600)+'h'+String(Math.floor(s%3600/60)).padStart(2,'0'):(s>=60?Math.floor(s/60)+' min '+String(Math.round(s%60)).padStart(2,'0')+' s':Math.round(s)+' s');
+function scBars(entries,total,cls){
+  if(!entries.length)return '<p style="color:var(--grey);font-size:13px">Aucune donnée sur cette période.</p>';
+  const max=Math.max(...entries.map(e=>e.count));
+  return entries.map(e=>`<div class="hbar"><span>${esc(e.label)}</span>
+    <div class="track"><div class="fill ${e.cls||cls||''}" style="width:${max?Math.round(100*e.count/max):0}%"></div></div>
+    <span class="n">${fmtN(e.count)}</span></div>`).join('');
+}
+async function loadSkip(){
+  if(!scSequences){initSkip();return;}
+  const mission=document.getElementById('sc-mission').value;
+  const from=document.getElementById('sc-from').value, to=document.getElementById('sc-to').value;
+  const box=document.getElementById('sc-content');
+  const cacheKey=mission+'|'+from+'|'+to;
+  const base={};
+  if(from)base.startDate=from+'T00:00:00.000Z';
+  if(to)base.endDate=to+'T23:59:59.999Z';
+  box.innerHTML='<div class="msg"><div class="spinner"></div>Chargement des stats SkipCall…</div>';
+  try{
+    let agg,capNote='';
+    if(scCache[cacheKey]){agg=scCache[cacheKey];}
+    else{
+      agg={calls:0,totalDur:0,nonCalled:0,tags:{},statuses:{},perSeq:[]};
+      const collect=(c,t,st,seq)=>{
+        const d=(c.data&&c.data[0])||{callCount:0,totalDurationInSeconds:0};
+        agg.calls+=d.callCount||0; agg.totalDur+=d.totalDurationInSeconds||0;
+        agg.nonCalled+=st.nonCalledCount||0;
+        (t.data||[]).forEach(x=>{const o=agg.tags[x.label]=agg.tags[x.label]||{count:0,success:!!x.isSuccess};o.count+=x.count;});
+        (st.data||[]).forEach(x=>{agg.statuses[x.status]=(agg.statuses[x.status]||0)+x.count;});
+        if(seq){const rdv=(t.data||[]).filter(x=>x.isSuccess).reduce((a,x)=>a+x.count,0);
+          agg.perSeq.push({name:seq.name,contacts:seq.contacts,calls:d.callCount||0,dur:d.totalDurationInSeconds||0,rdv});}
+      };
+      if(!mission){
+        const[c,t,st]=await Promise.all([SC('/v1/stats/calls',base),SC('/v1/stats/tag-repartition',base),SC('/v1/stats/status-repartition',base)]);
+        collect(c,t,st,null);
+      }else{
+        let seqs=scSequences.filter(s=>s.mission===mission);
+        if(seqs.length>20){capNote=`<div class="sc-warn">⚠ Mission volumineuse : seules les 20 premières séquences (sur ${seqs.length}) sont agrégées.</div>`;seqs=seqs.slice(0,20);}
+        const results=await Promise.all(seqs.map(async s=>{
+          const p={...base,sequenceId:s.id};
+          const[c,t,st]=await Promise.all([SC('/v1/stats/calls',p),SC('/v1/stats/tag-repartition',p),SC('/v1/stats/status-repartition',p)]);
+          return{s,c,t,st};
+        }));
+        results.forEach(({s,c,t,st})=>collect(c,t,st,s));
+      }
+      agg.capNote=capNote;
+      scCache[cacheKey]=agg;
+    }
+    const rdvTotal=Object.values(agg.tags).filter(t=>t.success).reduce((a,t)=>a+t.count,0);
+    const tagEntries=Object.entries(agg.tags).map(([label,o])=>({label,count:o.count,cls:o.success?'success':''})).sort((a,b)=>b.count-a.count);
+    const stEntries=Object.entries(agg.statuses).map(([s,c])=>({label:SC_STATUS_FR[s]||s,count:c,cls:(s==='CONNECTED'||s==='COMPLETED')?'success':(s==='NO_ANSWER'||s==='VOICEMAIL'||s==='BUSY'||s==='MISSED_CALL')?'neutral':''})).sort((a,b)=>b.count-a.count);
+    let h=agg.capNote||'';
+    h+=`<div class="kpis">
+      <div class="kpi"><div class="v">${fmtN(agg.calls)}</div><div class="l">Appels</div></div>
+      <div class="kpi rate"><div class="v">${fmtN(rdvTotal)}</div><div class="l">Tags succès (RDV)</div></div>
+      <div class="kpi"><div class="v">${fmtSec(agg.totalDur)}</div><div class="l">Durée totale</div></div>
+      <div class="kpi"><div class="v">${agg.calls?fmtSec(agg.totalDur/agg.calls):'–'}</div><div class="l">Durée moyenne / appel</div></div>
+      <div class="kpi"><div class="v">${fmtN(agg.nonCalled)}</div><div class="l">Contacts non appelés</div></div>
+    </div>
+    <div class="grid">
+      <div class="panel"><h3>→ Répartition des tags</h3>${scBars(tagEntries)}</div>
+      <div class="panel"><h3>→ Statuts des appels</h3>${scBars(stEntries)}</div>`;
+    if(agg.perSeq.length){
+      const rows=agg.perSeq.sort((a,b)=>b.calls-a.calls).map(s=>
+        `<tr${s.calls===0?' class="dim"':''}><td>${esc(s.name)}</td><td class="num">${fmtN(s.contacts)}</td>
+        <td class="num">${fmtN(s.calls)}</td><td class="num rate-badge">${fmtN(s.rdv)}</td>
+        <td class="num">${fmtSec(s.dur)}</td></tr>`).join('');
+      h+=`<div class="panel full"><h3>→ Détail par séquence</h3><div style="overflow-x:auto"><table>
+        <thead><tr><th>Séquence</th><th class="num">Contacts</th><th class="num">Appels</th><th class="num">Tags succès</th><th class="num">Durée</th></tr></thead>
+        <tbody>${rows}</tbody></table></div></div>`;
+    }
+    h+='</div>';
+    box.innerHTML=h;
+  }catch(e){
+    box.innerHTML='<div class="msg"><div class="big">Erreur SkipCall</div>'+esc(e.message)+'</div>';
+  }
 }
 
 loadAll();
