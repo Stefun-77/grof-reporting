@@ -165,12 +165,14 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
       <div class="pform">
         <input type="text" id="p-mission" list="missions-list" placeholder="Mission (ex : GROF, DCUBE…)">
         <datalist id="missions-list"></datalist>
+        <input type="text" id="p-pers" list="people-list" placeholder="Personne (optionnel)">
+        <datalist id="people-list"></datalist>
         <input type="text" id="p-statut" placeholder="Statut (ex : En cours, Résolu)">
         <textarea id="p-prob" placeholder="Problème rencontré…"></textarea>
         <textarea id="p-sol" placeholder="Solution…"></textarea>
         <textarea id="p-marche" placeholder="Marche à suivre (étapes concrètes)…"></textarea>
         <button class="btn-add" onclick="addProblem()">→ Ajouter</button>
-        <div class="note">Enregistré dans ce navigateur. Tu peux aussi alimenter un onglet « Problèmes » dans le Google Sheet : les deux sources s'affichent ensemble.</div>
+        <div class="note">Enregistré directement dans l'onglet « Problèmes » du Google Sheet — visible par toute l'équipe.</div>
       </div>
     </div>
     <div id="probs-list" class="problems"></div>
@@ -181,6 +183,7 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
 
 <script>
 const SHEET_ID = '1V5L7eIweFv-oFMEDqenv4XWYZCPQs3h0NUKPDFRxApE';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKpABW40iDncw1litKxJrsxGkuOtMbqCyfOHzyASb6nG30g-mJoY0XMj5bC8BvIJeP/exec';
 const PEOPLE = ['Matteo','Alix','Luca','Jennifer','Alexis','Idriss'];
 const PROBLEM_SHEETS = ['Problèmes','Problemes','Problématiques','Problematiques'];
 const RED='#FE0B00', BLACK='#0A0A0A', GREY='#6B6B6B', BORDER='#E6E6E6', GREEN='#1FA95C';
@@ -441,16 +444,27 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 // Problématiques saisies sur le site (stockées dans ce navigateur)
 function localProblems(){try{return JSON.parse(localStorage.getItem('grof-problems')||'[]')}catch(e){return[]}}
 function saveLocalProblems(l){localStorage.setItem('grof-problems',JSON.stringify(l))}
-function addProblem(){
+async function addProblem(){
   const v=id=>document.getElementById(id).value.trim();
   if(!v('p-prob')){document.getElementById('p-prob').focus();return;}
-  const list=localProblems();
-  list.push({id:Date.now(), date:new Date().toLocaleDateString('fr-FR'),
-    mission:(v('p-mission')||'Général').toUpperCase(), statut:v('p-statut'),
-    prob:v('p-prob'), sol:v('p-sol'), marche:v('p-marche'), local:true});
-  saveLocalProblems(list);
-  ['p-mission','p-statut','p-prob','p-sol','p-marche'].forEach(i=>document.getElementById(i).value='');
-  renderProblems();
+  const btn=document.querySelector('.btn-add');
+  btn.disabled=true; btn.textContent='→ Enregistrement…';
+  const payload={date:new Date().toLocaleDateString('fr-FR'),
+    mission:(v('p-mission')||'Général').toUpperCase(), personne:v('p-pers'), statut:v('p-statut'),
+    prob:v('p-prob'), sol:v('p-sol'), marche:v('p-marche')};
+  try{
+    const r=await fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'réponse invalide');
+    ['p-mission','p-pers','p-statut','p-prob','p-sol','p-marche'].forEach(i=>document.getElementById(i).value='');
+    problems=null; await loadProblems();
+  }catch(e){
+    const list=localProblems();
+    list.push({id:Date.now(),...payload,local:true});
+    saveLocalProblems(list); renderProblems();
+    alert("Impossible d'écrire dans le Google Sheet ("+e.message+"). Enregistré localement dans ce navigateur.");
+  }
+  btn.disabled=false; btn.textContent='→ Ajouter';
 }
 function delProblem(id){
   saveLocalProblems(localProblems().filter(p=>p.id!==id));
@@ -484,8 +498,9 @@ function probCard(p){
 
 function renderProblems(){
   const box=document.getElementById('probs-list');
-  // datalist missions
+  // datalists missions + personnes
   document.getElementById('missions-list').innerHTML=[...allMissions].sort().map(m=>`<option value="${esc(m)}">`).join('');
+  document.getElementById('people-list').innerHTML=PEOPLE.map(p=>`<option value="${p}">`).join('');
   const all=[...sheetProblems(),...localProblems()];
   if(!all.length){
     box.innerHTML=`<div class="msg"><div class="big">Aucune problématique pour l'instant</div>
