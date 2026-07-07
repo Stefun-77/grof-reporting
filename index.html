@@ -193,6 +193,11 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
         <div class="panel full"><h3>→ Objectifs de RDV par mission <em>(objectif mensuel · RDV pris sur la période sélectionnée)</em></h3><div style="overflow-x:auto"><table id="t-obj">
           <thead><tr><th>Mission</th><th class="num">Objectif / mois</th><th class="num">RDV pris</th><th class="num">Avancement</th><th style="width:38%">Progression</th></tr></thead>
           <tbody></tbody></table></div></div>
+        <div class="panel full"><h3>→ Jours travaillés &amp; ratios <em>(statut « Présent » des préparatoires · période sélectionnée)</em></h3>
+          <div id="jours-note" class="note" style="margin-bottom:10px"></div>
+          <div style="overflow-x:auto"><table id="t-jours">
+          <thead><tr><th>Personne</th><th class="num">Jours travaillés</th><th class="num">Congés</th><th class="num">En cours</th><th class="num">Arrêt maladie</th><th class="num">Appels / jour</th><th class="num">Décrochés / jour</th><th class="num">RDV / jour</th></tr></thead>
+          <tbody></tbody></table></div></div>
         <div class="panel full"><h3>→ Évolution de l'activité <em>/</em> appels · décrochés · RDV</h3><div class="chartbox"><canvas id="c-evo"></canvas></div></div>
         <div class="panel full"><h3>→ Taux de décroché &amp; taux de RDV <em>(%)</em></h3><div class="chartbox"><canvas id="c-rates"></canvas></div></div>
         <div class="panel"><h3>→ Par personne</h3><div class="chartbox"><canvas id="c-person"></canvas></div></div>
@@ -248,6 +253,14 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKpABW40iDncw1litKx
 const PEOPLE = ['Matteo','Alix','Luca','Jennifer','Alexis','Idriss'];
 const PROBLEM_SHEETS = ['Problèmes','Problemes','Problématiques','Problematiques'];
 const OBJECTIFS_RDV = {'WEECHOOZ':40,'DCUBE':10,'ZBO':10,'SPECTRUM':10,'HARVEN':10}; // objectifs mensuels
+// Google Sheets « Préparatoires » (jours travaillés) — onglet Récap par personne
+const PREPARATOIRES = {
+  'Alexis':{id:'1fU0N6Z1N7GaHGEkR-W1P-iQ7l5DrFB-Zq5kVnsIfKYc',gid:774627728},
+  'Luca':{id:'1MiSqrmhmQO1FO8FohPi2XMQlWaofLeboP2MGrMBUjHM',gid:1630390619},
+  'Alix':{id:'11t38K8etHHE_M0MYj3_zpRBSghFKB5xPZChvA93ABHA',gid:2090378719},
+  'Idriss':{id:'1xf-1w34sp9oZz1SWQW1rCWUjHKMGKiOkhDn-NuXmiik',gid:1299028637}
+};
+let joursData=null; // {personne:[{date,statut}]|null}
 const canonMission = m => m==='WECHOOZ' ? 'WEECHOOZ' : m;
 const RED='#FE0B00', BLACK='#0A0A0A', GREY='#6B6B6B', BORDER='#E6E6E6', GREEN='#1FA95C';
 const PALETTE=['#FE0B00','#0A0A0A','#F39C12','#1FA95C','#3498DB','#9B59B6','#E67E22','#1ABC9C'];
@@ -619,6 +632,31 @@ function render(){
     <td class="num">${fmtN(a.noshow)}</td><td class="num">${fmtN(a.reprog)}</td>
     <td class="num">${fmtN(Math.round(a.dur))}</td></tr>`;}).join('');
 
+  // Jours travaillés & ratios
+  const jt=document.querySelector('#t-jours tbody');
+  if(jt){
+    const noteEl=document.getElementById('jours-note');
+    if(!joursData){noteEl.textContent='Chargement des préparatoires…';jt.innerHTML='';}
+    else{
+      const anyOk=Object.values(joursData).some(v=>v);
+      noteEl.textContent=anyOk?'':'⚠ Préparatoires inaccessibles : partage les 4 Google Sheets « Préparatoires » par lien (Lecteur) pour activer ce tableau.';
+      const jFrom=document.getElementById('f-from').value?localDate(document.getElementById('f-from').value):null;
+      const jTo=document.getElementById('f-to').value?localDate(document.getElementById('f-to').value):null;
+      if(jTo)jTo.setHours(23,59,59);
+      jt.innerHTML=pNames.map((n,i)=>{
+        const a=pAgg[i], jd=joursData[n];
+        if(!jd) return `<tr class="dim"><td>${n}</td><td class="num" colspan="7">préparatoire non disponible</td></tr>`;
+        const inR=jd.filter(x=>(!jFrom||x.date>=jFrom)&&(!jTo||x.date<=jTo));
+        const cnt=re=>inR.filter(x=>re.test(x.statut)).length;
+        const trav=cnt(/pr[ée]sent/i), conges=cnt(/cong/i), cours=cnt(/cours/i), arret=cnt(/arr[êe]t/i);
+        const rat=v=>trav>0?(v/trav).toFixed(1).replace('.',','):'–';
+        return `<tr${trav===0?' class="dim"':''}><td>${n}</td><td class="num" style="font-weight:900">${fmtN(trav)}</td>
+        <td class="num">${fmtN(conges)}</td><td class="num">${fmtN(cours)}</td><td class="num">${fmtN(arret)}</td>
+        <td class="num rate-badge">${rat(a.calls)}</td><td class="num">${rat(a.conn)}</td><td class="num rate-badge">${rat(a.rdv)}</td></tr>`;
+      }).join('');
+    }
+  }
+
   // Objectifs de RDV par mission
   const rdvByM={};
   list.forEach(r=>{rdvByM[r.mission]=(rdvByM[r.mission]||0)+r.rdv;});
@@ -634,6 +672,29 @@ function render(){
   }).join('');
 }
 function k(id,v){document.getElementById(id).textContent=v}
+
+// --- Jours travaillés (préparatoires) ---
+async function loadJours(){
+  const entries=Object.entries(PREPARATOIRES);
+  const res=await Promise.allSettled(entries.map(([p,cfg])=>
+    fetch(`https://docs.google.com/spreadsheets/d/${cfg.id}/gviz/tq?tqx=out:csv&gid=${cfg.gid}`)
+      .then(r=>{if(!r.ok)throw 0;return r.text();})
+      .then(t=>{if(/<html|<!DOCTYPE/i.test(t))throw 0;return t;})
+  ));
+  joursData={};
+  res.forEach((r,i)=>{
+    const p=entries[i][0];
+    if(r.status!=='fulfilled'){joursData[p]=null;return;}
+    const arr=[];
+    for(const row of parseCSV(r.value)){
+      const d=parseDate(row[0]); if(!d) continue;
+      const st=(row[2]||'').trim(); if(!st) continue;
+      arr.push({date:d,statut:st});
+    }
+    joursData[p]=arr;
+  });
+  render();
+}
 
 // --- Problèmes & solutions ---
 async function loadProblems(){
@@ -945,7 +1006,7 @@ function exportSkipPDF(){
   doc.save('grof-skipcall_'+(mission||'toutes-missions').toLowerCase()+'_'+from+'_'+to+'.pdf');
 }
 
-loadAll();
+loadAll().then(loadJours);
 </script>
 </body>
 </html>
