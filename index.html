@@ -120,6 +120,7 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
   <nav class="nav">
     <button class="active" data-view="perf" onclick="switchView('perf')">→ Performance</button>
     <button data-view="skip" onclick="switchView('skip')">→ SkipCall</button>
+    <button data-view="pilot" onclick="switchView('pilot')">→ Pilotage</button>
     <button data-view="probs" onclick="switchView('probs')">→ Problèmes &amp; Solutions</button>
   </nav>
   <div class="updated" id="updated"></div>
@@ -222,6 +223,37 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
       <div class="filter"><label>&nbsp;</label><button class="range-btn" style="min-width:auto;background:var(--black);color:#fff;border-color:var(--black)" onclick="exportSkipPDF()">→ Export PDF</button></div>
     </div>
     <div id="sc-content"></div>
+  </section>
+
+  <!-- VUE PILOTAGE -->
+  <section id="view-pilot" style="display:none">
+    <div class="filters">
+      <div class="filter"><label>Mission</label><select id="pl-mission" onchange="renderPilot()"></select></div>
+      <div class="filter range-wrap"><label>Période</label>
+        <button class="range-btn" id="pl-range" onclick="toggleRange('pl')">…</button>
+        <div class="range-pop" id="pl-pop">
+          <label>Du</label><input type="date" id="pl-from">
+          <label>Au</label><input type="date" id="pl-to">
+          <button class="btn-add" style="grid-column:auto;justify-self:stretch" onclick="applyRange('pl')">→ Appliquer</button>
+        </div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="pl-rdv">–</div><div class="l">RDV pris</div></div>
+      <div class="kpi rate"><div class="v" id="pl-val">–</div><div class="l">RDV validés</div></div>
+      <div class="kpi"><div class="v" id="pl-inval">–</div><div class="l">RDV invalidés</div></div>
+      <div class="kpi rate"><div class="v" id="pl-txval">–</div><div class="l">Taux de validation</div></div>
+      <div class="kpi"><div class="v" id="pl-noshow">–</div><div class="l">No show</div></div>
+    </div>
+    <div class="note" style="margin:-14px 0 20px">RDV validés / invalidés et commissions : <b style="color:var(--red)">en attente de la connexion Notion</b> — les colonnes se rempliront automatiquement dès qu'elle sera branchée.</div>
+    <div class="grid">
+      <div class="panel full"><h3>→ Pilotage par mission</h3><div style="overflow-x:auto"><table id="t-pilot">
+        <thead><tr><th>Mission</th><th class="num">RDV pris</th><th class="num">Validés</th><th class="num">Invalidés</th><th class="num">Taux validation</th><th class="num">No show</th><th class="num">Objectif / mois</th><th class="num">Avancement</th></tr></thead>
+        <tbody></tbody></table></div></div>
+      <div class="panel full"><h3>→ Commissions par SDR <em>(20 € / RDV validé · 30 € au-delà de 10 dans le mois)</em></h3><div style="overflow-x:auto"><table id="t-coms">
+        <thead><tr><th>Personne</th><th class="num">RDV pris</th><th class="num">RDV validés</th><th class="num">Commission</th></tr></thead>
+        <tbody></tbody></table></div></div>
+    </div>
   </section>
 
   <!-- VUE PROBLEMES -->
@@ -397,6 +429,7 @@ function applyRange(prefix){
   document.getElementById(prefix+'-pop').classList.remove('open');
   updateRangeLabel(prefix);
   if(prefix==='f'){clearPreset();render();}
+  else if(prefix==='pl'){renderPilot();}
   else{loadSkip();}
 }
 document.addEventListener('click',e=>{
@@ -800,9 +833,62 @@ function renderProblems(){
 
 function switchView(v){
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
-  ['perf','skip','probs'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');
+  ['perf','skip','pilot','probs'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');
   if(v==='probs'&&problems===null) loadProblems();
   if(v==='skip'&&scSequences===null) initSkip();
+  if(v==='pilot'&&!pilotInit) initPilot();
+}
+
+// --- Pilotage (RDV validés/invalidés via Notion : branchement ultérieur) ---
+let pilotInit=false;
+const NOTION_ENABLED=false; // passera à true quand le proxy Notion sera branché
+function commission(nValides){ // 20 € / RDV validé, 30 € au-delà de 10 dans le mois
+  return nValides<=10 ? nValides*20 : 10*20+(nValides-10)*30;
+}
+function initPilot(){
+  pilotInit=true;
+  const missions=[...new Set([...allMissions,...rows.map(r=>r.mission)])].sort();
+  document.getElementById('pl-mission').innerHTML='<option value="">Toutes les missions</option>'+missions.map(m=>`<option>${m}</option>`).join('');
+  const now=new Date();
+  document.getElementById('pl-from').value=iso(new Date(now.getFullYear(),now.getMonth(),1));
+  document.getElementById('pl-to').value=iso(now);
+  updateRangeLabel('pl');
+  renderPilot();
+}
+function renderPilot(){
+  const m=document.getElementById('pl-mission').value;
+  const from=document.getElementById('pl-from').value?localDate(document.getElementById('pl-from').value):null;
+  const to=document.getElementById('pl-to').value?localDate(document.getElementById('pl-to').value):null;
+  if(to)to.setHours(23,59,59);
+  const list=rows.filter(r=>(!m||r.mission===m)&&(!from||r.date>=from)&&(!to||r.date<=to));
+  const tot=agg(list);
+  const NA='—';
+  k('pl-rdv',fmtN(tot.rdv)); k('pl-noshow',fmtN(tot.noshow));
+  k('pl-val',NOTION_ENABLED?'0':NA); k('pl-inval',NOTION_ENABLED?'0':NA); k('pl-txval',NOTION_ENABLED?'0 %':NA);
+  // par mission
+  const byM={};
+  list.forEach(r=>{(byM[r.mission]=byM[r.mission]||[]).push(r);});
+  const names=[...new Set([...Object.keys(OBJECTIFS_RDV),...Object.keys(byM)])].sort();
+  document.querySelector('#t-pilot tbody').innerHTML=names.map(n=>{
+    const a=agg(byM[n]||[]);
+    const obj=OBJECTIFS_RDV[n];
+    const av=obj?fmtPct(100*a.rdv/obj):'–';
+    return `<tr${a.rdv===0?' class="dim"':''}><td>${n}</td>
+      <td class="num" style="font-weight:900">${fmtN(a.rdv)}</td>
+      <td class="num">${NA}</td><td class="num">${NA}</td><td class="num">${NA}</td>
+      <td class="num">${fmtN(a.noshow)}</td>
+      <td class="num">${obj||'–'}</td><td class="num rate-badge">${av}</td></tr>`;
+  }).join('')||'<tr><td colspan="8" style="color:var(--grey)">Aucune donnée sur cette période.</td></tr>';
+  // commissions par SDR
+  const byP={}; PEOPLE.forEach(n=>byP[n]=[]);
+  list.forEach(r=>{if(byP[r.person])byP[r.person].push(r);});
+  document.querySelector('#t-coms tbody').innerHTML=PEOPLE.map(n=>{
+    const a=agg(byP[n]);
+    return `<tr${a.rdv===0?' class="dim"':''}><td>${n}</td>
+      <td class="num">${fmtN(a.rdv)}</td>
+      <td class="num">${NOTION_ENABLED?'0':NA}</td>
+      <td class="num rate-badge">${NOTION_ENABLED?commission(0)+' €':NA}</td></tr>`;
+  }).join('');
 }
 
 // --- SkipCall (via proxy Apps Script, la clé API reste côté serveur) ---
