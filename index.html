@@ -118,9 +118,9 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
     <span class="tag">Reporting SDR</span>
   </div>
   <nav class="nav">
+    <button data-view="pilot" onclick="switchView('pilot')">→ Pilotage</button>
     <button class="active" data-view="perf" onclick="switchView('perf')">→ Performance</button>
     <button data-view="skip" onclick="switchView('skip')">→ SkipCall</button>
-    <button data-view="pilot" onclick="switchView('pilot')">→ Pilotage</button>
     <button data-view="probs" onclick="switchView('probs')">→ Problèmes &amp; Solutions</button>
   </nav>
   <div class="updated" id="updated"></div>
@@ -194,6 +194,14 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
         <div class="panel full"><h3>→ Objectifs de RDV par mission <em>(objectif mensuel · RDV pris sur la période sélectionnée)</em></h3><div style="overflow-x:auto"><table id="t-obj">
           <thead><tr><th>Mission</th><th class="num">Objectif / mois</th><th class="num">RDV pris</th><th class="num">Avancement</th><th style="width:38%">Progression</th></tr></thead>
           <tbody></tbody></table></div></div>
+        <div class="panel full"><h3>→ Présences de la semaine <em>(préparatoires · hors week-end)</em></h3>
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
+            <button class="range-btn" style="min-width:auto;padding:6px 14px" onclick="calWeek(-1)">←</button>
+            <span id="cal-label" style="font-weight:700;font-size:14px"></span>
+            <button class="range-btn" style="min-width:auto;padding:6px 14px" onclick="calWeek(1)">→</button>
+          </div>
+          <div style="overflow-x:auto"><table id="t-cal"><thead></thead><tbody></tbody></table></div>
+        </div>
         <div class="panel full"><h3>→ Jours travaillés &amp; ratios <em>(statut « Présent » des préparatoires · période sélectionnée)</em></h3>
           <div id="jours-note" class="note" style="margin-bottom:10px"></div>
           <div style="overflow-x:auto"><table id="t-jours">
@@ -250,7 +258,7 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
       <div class="panel full"><h3>→ Pilotage par mission</h3><div style="overflow-x:auto"><table id="t-pilot">
         <thead><tr><th>Mission</th><th class="num">RDV pris</th><th class="num">Validés</th><th class="num">Invalidés</th><th class="num">Taux validation</th><th class="num">No show</th><th class="num">Objectif / mois</th><th class="num">Avancement</th></tr></thead>
         <tbody></tbody></table></div></div>
-      <div class="panel full"><h3>→ Commissions par SDR <em>(20 € / RDV validé · 30 € au-delà de 10 dans le mois)</em></h3><div style="overflow-x:auto"><table id="t-coms">
+      <div class="panel full"><h3>→ Commissions par SDR</h3><div style="overflow-x:auto"><table id="t-coms">
         <thead><tr><th>Personne</th><th class="num">RDV pris</th><th class="num">RDV validés</th><th class="num">Commission</th></tr></thead>
         <tbody></tbody></table></div></div>
     </div>
@@ -706,6 +714,39 @@ function render(){
 }
 function k(id,v){document.getElementById(id).textContent=v}
 
+// --- Calendrier des présences (semaine, hors week-end) ---
+let calMonday=(()=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d;})();
+function calWeek(delta){calMonday.setDate(calMonday.getDate()+7*delta);renderCal();}
+function renderCal(){
+  const head=document.querySelector('#t-cal thead');
+  const body=document.querySelector('#t-cal tbody');
+  if(!head)return;
+  const days=[];
+  for(let i=0;i<5;i++){const d=new Date(calMonday);d.setDate(d.getDate()+i);days.push(d);}
+  const JJ=['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
+  document.getElementById('cal-label').textContent='Semaine du '+days[0].toLocaleDateString('fr-FR')+' au '+days[4].toLocaleDateString('fr-FR');
+  head.innerHTML='<tr><th>Personne</th>'+days.map((d,i)=>`<th style="text-align:center">${JJ[i]}<br><span style="font-weight:400">${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}</span></th>`).join('')+'</tr>';
+  const badge=s=>{
+    if(!s)return['—','color:#B5B5B5'];
+    if(/pr[ée]sent/i.test(s))return['✓ Présent','color:var(--green);font-weight:900'];
+    if(/cong/i.test(s))return['Congés','color:#3498DB;font-weight:700'];
+    if(/cours/i.test(s))return['En cours','color:#F39C12;font-weight:700'];
+    if(/arr/i.test(s))return['Arrêt maladie','color:var(--red);font-weight:900'];
+    if(/week/i.test(s))return['—','color:#B5B5B5'];
+    return[s,'font-weight:700'];
+  };
+  body.innerHTML=Object.keys(PREPARATOIRES).map(p=>{
+    const jd=joursData&&joursData[p];
+    if(!jd)return `<tr class="dim"><td>${p}</td><td colspan="5" style="text-align:center">préparatoire non disponible</td></tr>`;
+    return '<tr><td style="font-weight:700">'+p+'</td>'+days.map(d=>{
+      const k=iso(d);
+      const e=jd.find(x=>iso(x.date)===k);
+      const[label,style]=badge(e?e.statut:'');
+      return `<td style="text-align:center;${style}">${label}</td>`;
+    }).join('')+'</tr>';
+  }).join('');
+}
+
 // --- Jours travaillés (préparatoires) ---
 async function loadJours(){
   const entries=Object.entries(PREPARATOIRES);
@@ -727,6 +768,7 @@ async function loadJours(){
     joursData[p]=arr;
   });
   render();
+  renderCal();
 }
 
 // --- Problèmes & solutions ---
