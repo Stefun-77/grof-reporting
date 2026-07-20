@@ -266,6 +266,12 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
           <div style="overflow-x:auto"><table id="t-cal"><thead></thead><tbody></tbody></table></div>
         </div>
         <div class="panel full"><h3>→ Jours travaillés &amp; ratios</h3>
+          <div class="seg" id="jt-preset" style="margin-bottom:14px;display:inline-flex">
+            <button data-p="lastweek" onclick="setJtPreset('lastweek')">Semaine dernière</button>
+            <button data-p="month" class="active" onclick="setJtPreset('month')">Ce mois-ci</button>
+            <button data-p="lastmonth" onclick="setJtPreset('lastmonth')">Mois dernier</button>
+            <button data-p="3months" onclick="setJtPreset('3months')">3 derniers mois</button>
+          </div>
           <div id="jours-note" class="note" style="margin-bottom:10px"></div>
           <div style="overflow-x:auto"><table id="t-jours">
           <thead><tr><th>Personne</th><th class="num">Jours travaillés</th><th class="num">Appels / jour</th><th class="num">Décrochés / jour</th><th class="num">RDV / jour</th></tr></thead>
@@ -928,6 +934,21 @@ function initPilot(){
   updateRangeLabel('pl');
   renderPilot();
 }
+let jtPeriod='month';
+function setJtPreset(p){
+  jtPeriod=p;
+  document.querySelectorAll('#jt-preset button').forEach(b=>b.classList.toggle('active',b.dataset.p===p));
+  renderPilot();
+}
+function jtRange(){
+  const now=new Date(); now.setHours(0,0,0,0);
+  let from,to=new Date(now); to.setHours(23,59,59);
+  if(jtPeriod==='lastweek'){const d=new Date(now);const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day-7);from=d;to=new Date(d);to.setDate(to.getDate()+6);to.setHours(23,59,59);}
+  else if(jtPeriod==='lastmonth'){from=new Date(now.getFullYear(),now.getMonth()-1,1);to=new Date(now.getFullYear(),now.getMonth(),0,23,59,59);}
+  else if(jtPeriod==='3months'){from=new Date(now.getFullYear(),now.getMonth()-2,1);}
+  else{from=new Date(now.getFullYear(),now.getMonth(),1);}
+  return[from,to];
+}
 function setPlPreset(p){
   const now=new Date(); now.setHours(0,0,0,0);
   let from,to=new Date(now);
@@ -1016,10 +1037,13 @@ function renderPilot(){
       if(joursSnapshot.length) note+='Données snapshot CSV du 07/07/2026 pour : '+joursSnapshot.join(', ')+' (partage les Sheets pour du temps réel). ';
       if(manquants.length&&anyOk) note+='Manquants : '+manquants.join(', ')+'.';
       noteEl.textContent=note;
+      const[jtFrom,jtTo]=jtRange();
+      const jtByP={}; PEOPLE.forEach(n=>jtByP[n]=[]);
+      rows.forEach(r=>{if(jtByP[r.person]&&r.date>=jtFrom&&r.date<=jtTo)jtByP[r.person].push(r);});
       jt.innerHTML=PEOPLE.map(n=>{
-        const a=agg(byP[n]), jd=joursData[n];
+        const a=agg(jtByP[n]), jd=joursData[n];
         if(!jd) return `<tr class="dim"><td>${n}</td><td class="num" colspan="4">préparatoire non disponible</td></tr>`;
-        const inR=jd.filter(x=>(!from||x.date>=from)&&(!to||x.date<=to));
+        const inR=jd.filter(x=>x.date>=jtFrom&&x.date<=jtTo);
         const cnt=re=>inR.filter(x=>re.test(x.statut)).length;
         const trav=cnt(/^pr[ée]sent/i);
         const rat=v=>trav>0?(v/trav).toFixed(1).replace('.',','):'–';
