@@ -335,20 +335,27 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
       </select>
       <input type="text" id="r-nom" placeholder="Nom du RDV / prospect *">
       <input type="text" id="r-org" placeholder="Organisation">
+      <input type="text" id="r-secteur" placeholder="Secteur d'activité">
       <input type="text" id="r-contact" placeholder="Contact">
       <input type="text" id="r-poste" placeholder="Poste">
       <input type="text" id="r-tel" placeholder="Téléphone du contact">
       <input type="text" id="r-email" placeholder="Email du contact">
       <div><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--grey);margin-bottom:6px">Date RDV</label><input type="datetime-local" id="r-daterdv" style="width:100%"></div>
+      <div><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--grey);margin-bottom:6px">Lieu</label><select id="r-lieu" style="width:100%"><option value="">— Lieu —</option><option>Visio</option><option>Physique</option></select></div>
       <div><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--grey);margin-bottom:6px">RDV pris le</label><input type="date" id="r-prisle" style="width:100%"></div>
       <select id="r-prispar">
         <option value="">— Pris par —</option>
         <option>Alexis</option><option>Alix</option><option>Luca</option><option>Matteo</option>
         <option>Idriss</option><option>Léo</option><option>Louis</option>
       </select>
+      <select id="r-personne">
+        <option value="">— Personne (qui fait le RDV) —</option>
+        <option>Alexis</option><option>Alix</option><option>Luca</option><option>Matteo</option>
+        <option>Idriss</option><option>Léo</option><option>Louis</option>
+      </select>
       <div><label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--grey);margin-bottom:6px">Enregistrement d'appel (MP3, optionnel)</label><input type="file" id="r-mp3" accept="audio/mpeg,audio/mp3,.mp3" style="width:100%;background:var(--card);border:1px solid var(--black);border-radius:12px;padding:9px 12px;font-family:inherit;font-size:13px"></div>
       <button class="btn-add" onclick="submitRdv()">→ Créer dans Notion</button>
-      <div class="note" id="r-msg">Les champs correspondent aux bases Notion « RDV Pris [DB] » — le RDV apparaît immédiatement dans Notion. Les champs spécifiques à certaines missions (secteur, lieu…) restent à compléter dans Notion si besoin.</div>
+      <div class="note" id="r-msg">Les champs correspondent aux bases Notion « RDV Pris [DB] » — le RDV apparaît immédiatement dans Notion. </div>
     </div>
   </div>
 </section>
@@ -858,7 +865,7 @@ async function submitRdv(){
   btn.disabled=true; btn.textContent='→ Création…';
   const payload={action:'notion_rdv',mission:v('r-mission'),nom:v('r-nom'),org:v('r-org'),contact:v('r-contact'),
     poste:v('r-poste'),tel:v('r-tel'),email:v('r-email'),dateRdv:v('r-daterdv'),prisLe:v('r-prisle'),
-    prisPar:v('r-prispar'),statut:v('r-statut')};
+    prisPar:v('r-prispar'),statut:v('r-statut'),personne:v('r-personne'),secteur:v('r-secteur'),lieu:v('r-lieu')};
   try{
     const fileInput=document.getElementById('r-mp3');
     if(fileInput.files && fileInput.files[0]){
