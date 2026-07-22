@@ -122,6 +122,13 @@ footer a{color:var(--red);text-decoration:none;font-weight:700}
 .rdv-more-btn{width:100%;background:var(--bg);border:1px solid var(--black);border-radius:10px;padding:9px;font-family:inherit;font-weight:700;font-size:11.5px;cursor:pointer;margin-top:2px}
 .rdv-more-btn:hover{background:var(--black);color:#fff}
 .rdv-audio{width:100%;height:32px;margin-top:10px}
+.rdv-card-sub{font-size:12px;color:var(--grey);font-weight:700;margin-bottom:8px}
+.rdv-card-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--black);font-weight:600;margin-bottom:2px}
+.rdv-card-meta span{display:inline-flex;align-items:center;gap:4px}
+.rdv-toggle-details{background:none;border:none;color:var(--grey);font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;cursor:pointer;padding:8px 0 0;text-align:left}
+.rdv-toggle-details:hover{color:var(--black)}
+.rdv-card-details{margin-top:6px;padding-top:8px;border-top:1px solid var(--border);display:none;gap:5px;font-size:12.5px}
+.rdv-card-details.open{display:grid}
 </style>
 </head>
 <body>
@@ -968,28 +975,39 @@ function showMoreStatus(status){
 document.addEventListener('click', function(e){
   const btn = e.target.closest && e.target.closest('.rdv-more-btn');
   if(btn && btn.dataset.status) showMoreStatus(btn.dataset.status);
+  const toggle = e.target.closest && e.target.closest('.rdv-toggle-details');
+  if(toggle && toggle.dataset.target){
+    const det = document.getElementById(toggle.dataset.target);
+    if(det){
+      det.classList.toggle('open');
+      toggle.textContent = det.classList.contains('open') ? '→ Masquer' : '→ Détails';
+    }
+  }
 });
 
 function rdvCard(r, i, color){
+  const dateStr = fmtRdvDate(r.dateRdv);
   return '<div class="rdv-detail-card" style="border-left-color:'+color+'">'
-    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">'
     +'<div style="font-weight:900;font-size:15px">'+(r.url?'<a href="'+esc(r.url)+'" target="_blank" style="color:inherit;text-decoration:none">'+esc(r.nom||'Sans nom')+'</a>':esc(r.nom||'Sans nom'))+'</div>'
     +'<button onclick="openEditRdv('+i+')" title="Modifier" style="flex-shrink:0;background:none;border:1px solid var(--black);border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px">✏️</button>'
     +'</div>'
-    +'<div style="display:grid;gap:5px;font-size:12.5px;color:var(--black)">'
-      +rdvField('Organisation', r.organisation)
-      +rdvField('Secteur', r.secteur)
+    +((r.organisation||r.secteur) ? '<div class="rdv-card-sub">'+esc(r.organisation||'')+(r.organisation&&r.secteur?' · ':'')+esc(r.secteur||'')+'</div>' : '')
+    +'<div class="rdv-card-meta">'
+      +(dateStr ? '<span>📅 '+esc(dateStr)+'</span>' : '')
+      +(r.lieu ? '<span>'+(r.lieu==='Visio'?'💻':'📍')+' '+esc(r.lieu)+'</span>' : '')
+    +'</div>'
+    +(r.recordUrl ? '<audio class="rdv-audio" controls preload="none" src="'+esc(r.recordUrl)+'"></audio>' : (r.hasRecord ? '<div class="note" style="margin-top:6px">🎧 Enregistrement disponible</div>' : ''))
+    +'<button class="rdv-toggle-details" data-target="rdv-det-'+i+'">→ Détails</button>'
+    +'<div class="rdv-card-details" id="rdv-det-'+i+'">'
       +rdvField('Contact', r.contact)
       +rdvField('Poste', r.poste)
       +rdvField('Téléphone', r.tel)
       +rdvField('Email', r.email)
-      +rdvField('Date RDV', fmtRdvDate(r.dateRdv))
       +rdvField('Pris le', fmtRdvDate(r.prisLe))
       +rdvField('Pris par', r.prisPar)
       +rdvField('Personne', r.personne)
-      +rdvField('Lieu', r.lieu)
     +'</div>'
-    +(r.recordUrl ? '<audio class="rdv-audio" controls preload="none" src="'+esc(r.recordUrl)+'"></audio>' : (r.hasRecord ? '<div class="note" style="margin-top:8px">🎧 Enregistrement disponible</div>' : ''))
   +'</div>';
 }
 function rdvField(label, value){
